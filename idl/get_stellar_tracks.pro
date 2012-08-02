@@ -1,7 +1,39 @@
-; program to get the isochronses (lum, teff, logg, radius)
+;+
+; NAME:
+;       GET_STELLAR_TRACKS
+;
+; PURPOSE:
+;       Read in stellar evolutionary tracks.  Currently a hard coded
+;       set of interpolated Geneva based tracks.
+;
+; CATEGORY:
+;       Bayesian fitting.
+;
+; CALLING SEQUENCE:
+;       GET_STELLAR_TRACKS, grid_logl, grid_logt, grid_logg,
+;                           grid_radius, grid_mass, grid_bmass, 
+;                           grid_tag, grid_age
+;
+; INPUTS:
+;
+; KEYWORD PARAMETERS:
+;       no_iter : turn off the interpolation by a factor of 25 in mass
+;                 and track step
+;
+; OUTPUTS:
+;
+; OPTIONAL OUTPUTS:
+;
+; PROCEDURE:
+;
+; EXAMPLE:
+;
+; MODIFICATION HISTORY:
+; 	Started     : Karl Gordon (23 Jul 2012)
+;-
 
-pro get_isochrones,grid_logl,grid_logt,grid_logg,grid_radius,grid_mass,grid_bmass,grid_tag,grid_age, $
-                   no_inter=no_inter
+pro get_stellar_tracks,grid_logl,grid_logt,grid_logg,grid_radius,grid_mass,grid_bmass,grid_tag,grid_age, $
+  no_inter=no_inter
 
 met_path = '~/Pro/Fit_SEDs/Stellar_Tracks/Geneva/z0.020/'
 
@@ -46,7 +78,7 @@ for i = 0,(n_tables-1) do begin
 endfor
 
 ; treat the table as an image and make it bigger to reduce
-; interpolation errors
+; interpolation errors when matching to stellar atmosphere models
 if (not keyword_set(no_inter)) then begin
     n_inter = 25
     x = findgen((n_inter*n_steps)-(n_inter-1))/n_inter

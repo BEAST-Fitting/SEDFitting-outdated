@@ -1,10 +1,41 @@
-; ----------------------------------------------------------------------
-;   Procedure to compute the one parameter (R_v) extinction curve.  This
-; is from the work of Cardelli, Clayton, and Mathis 1989, ApJ, 345, 245.
+;+
+; NAME:
+;       CCM
 ;
-; 28 Dec 2005 : updated to handle a single x or a vector of xs
+; PURPOSE:
+;       Procedure to compute the one parameter (R_v) extinction curve.  This
+;       is from the work of Cardelli, Clayton, and Mathis 1989, ApJ, 345, 245.
+;
+; CATEGORY:
+;       Bayesian fitting.
+;
+; CALLING SEQUENCE:
+;       result = CCM(rv,x)
+;
+; INPUTS:
+;       rv : R(V) = A(V)/E(B-V) value [rough measure of average grain size]
+;       x : wavelength vector in units of 1/micron
+;
+; KEYWORD PARAMETERS:
+;
+; OUTPUTS:
+;       result : A(lambda)/A(V) as a function of wavelength
+;
+; OPTIONAL OUTPUTS:
+;       a : zero point coefficient of R(V) dependent relationship
+;       b : slope coefficient of R(V) dependent relationship
+;
+; PROCEDURE:
+;
+; EXAMPLE:
+;
+; MODIFICATION HISTORY:
+; 	Started     : Karl Gordon (sometime in the distant past)
+;       28 Dec 2005 : updated to handle a single x or a vector of xs (KDG)
+;       2 Aug 2012  : Cleaned up and full documentation added (KDG)
+;-
 
-function ccm,Rv,x,a,b
+function ccm,rv,x,a,b
 
 npts = n_elements(x)
 a = fltarr(npts)
@@ -43,123 +74,3 @@ temp = a + b/Rv
 return,temp
 
 end
-
-; ----------------------------------------------------------------------
-
-function ccm_wave,Rv,wave
-
-x = 1.0/(wave/1.0e4)
-temp = ccm(Rv,x)
-
-return,temp
-
-end
-
-; ----------------------------------------------------------------------
-; ----------------------------------------------------------------------
-
-pro many_ccm_wave,Rv,wave,Al_Av
-
-npts = n_elements(wave)
-Al_Av = fltarr(npts)
-for i = 0,(npts-1) do begin
-   Al_Av(i) = ccm_wave(Rv,wave(i))
-endfor
-
-end
-
-; ----------------------------------------------------------------------
-
-pro get_ccm,Rv,x,Al_Av
-
-n_waves = 100
-kxrange = [0.3,8.0]
-x = kxrange(0) + $
-   findgen(n_waves)*(kxrange(1) - kxrange(0))/float(n_waves-1)
-Al_Av = fltarr(n_waves)
-
-for i = 0,(n_waves-1) do begin
-   Al_Av(i) = ccm(Rv,x(i))
-endfor
-
-end
-
-; ----------------------------------------------------------------------
-
-pro plot_Al_Av,Rv
-
-get_ccm,Rv,x,Al_Av
-
-kplot,x,Al_Av,xtitle='1/!4k!3 [!4l!3m]',ytitle='A(!4k!3)/A(V)', $
-   title='R!DV!N = ' + string(Rv,format='(F3.1)') $
-      + ' (Cardelli, Clayton, and Mathis 1989)'
-
-end
-
-; ----------------------------------------------------------------------
-
-pro plot_E_E,Rv
-
-ccm,Rv,x,Al_Av
-
-E_E = Rv*(Al_Av - 1.0)
-
-kplot,x,E_E,xtitle='1/!4k!3 [!4l!3m]',ytitle='E(!4k!3 - V)/E(B - V)', $
-   title='R!DV!N = ' + string(Rv,format='(F3.1)') $
-      + ' (Cardelli, Clayton, and Mathis 1989)'
-
-end
-
-; ----------------------------------------------------------------------
-
-pro plot_A_E,Rv
-
-ccm,Rv,x,Al_Av
-
-A_E = Al_Av*Rv
-
-kplot,x,A_E,xtitle='1/!4k!3 [!4l!3m]',ytitle='A(!4k!3)/E(B - V)', $
-   title='R!DV!N = ' + string(Rv,format='(F3.1)') $
-      + ' (Cardelli, Clayton, and Mathis 1989)'
-
-end
-
-; ----------------------------------------------------------------------
-
-pro many_ccm_fit,x,C,E_E,E_E_pder
-
-npts = n_elements(x)
-E_E = fltarr(npts)
-E_E_pder = fltarr(npts)
-for i = 0,(npts-1) do begin
-    E_E[i] = ccm(x(i),C,a,b)
-    E_E[i] = C*(a - 1.0) + b
-
-    E_E_pder(i) = (a - 1.0)
-
-endfor
-
-end
-
-; ----------------------------------------------------------------------
-
-pro fit_ccm,x,ext,C,sigma_C,ccm_chisqr=ccm_chisqr,guess_C=guess_C
-
-; guesses at the values of C
-
-if (not keyword_set(guess_C)) then begin
-    C = 3.1
-endif else begin
-    C = guess_C
-endelse
-
-w = replicate(1.0,n_elements(x))
-
-; fit the extinction curve to the FM parameterization
-
-calc_ext = curvefit(x,ext,w,C,sigma_C,function_name="many_ccm_fit", $
-                    chi2=ccm_chisqr,iter=num_iter,tol=1e-4)
-
-end
-
-; ----------------------------------------------------------------------

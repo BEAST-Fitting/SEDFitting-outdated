@@ -1,5 +1,44 @@
+;+
+; NAME:
+;       FIT_SEDS
+;
+; PURPOSE:
+;       Fit a model of a single star at a specified distance.  The
+;       single star model includes both stellar physics and
+;       interstellar extinction.
+;
+; CATEGORY:
+;       Bayesian fitting.
+;
+; CALLING SEQUENCE:
+;       FIT_SEDS
+;
+; INPUTS:
+;       cat_fluxes : fluxes of stars [n_bands, n_stars]
+;       cat_fluxes_unc : flux uncertainties of stars [n_bands, n_stars]
+;       cat_coords : coordinates of stars [2, n_stars]
+;       cat_mags : magnitudes of stars [n_bands, n_stars]
+;       cat_mags_unc : magnitude uncertainties of stars [n_bands,
+;                      n_stars]
+;
+; KEYWORD PARAMETERS:
+;       modname : model name (created from 
+;
+; OUTPUTS:
+;
+; OPTIONAL OUTPUTS:
+;
+; PROCEDURE:
+;
+; EXAMPLE:
+;
+; MODIFICATION HISTORY:
+; 	Started     : Karl Gordon (2010)
+;       2010-2012   : lots of development (undocumented, KDG)
+;       31 Jul 2012 : Cleaned up and full documentation added (KDG)
+;-
 
-pro fit_seds,cat_fluxes,cat_fluxes_unc,cat_coords,cat_mags,cat_mags_unc,star_bricks, $
+pro fit_seds,cat_fluxes,cat_fluxes_unc,cat_coords,cat_mags,cat_mags_unc, $
              modname=modname, $
              use_save_seds=use_save_seds,max_chisqr=max_chisqr,noplot=noplot, $
              min_i=min_i,max_i=max_i,skip_i=skip_i,prompt=prompt,brick=brick, $
@@ -98,7 +137,6 @@ for z = min_i,max_i,skip_i do begin
               [cat_mags[*,z]],[cat_mags_unc[*,z]],[best_fit_fluxes],[best_unred_fit_fluxes]]
     fxhmake,header,tarray,/initialize
     sxaddpar,header,'NAME',name,'CAT unique name of this star (based on ra & dec)'
-;    sxaddpar,header,'BRICK',star_bricks[z],'CAT brick number'
     sxaddpar,header,'BRICK',brick,'CAT brick number'
     sxaddpar,header,'SNUM',z+1,'star number'
     sxaddpar,header,'RA',cat_coords[0,z],'RA'
