@@ -1,0 +1,14 @@
+# Stellar Nut Cracker Code
+
+Bayesian stellar SED fitting for PHAT
+
+Efforts by:
+* Karl Gordon (STScI)
+
+## History:
+
+25 Jul 2012: Commit of current code (needs cleaning and documentation)
+
+2  Aug 2012: First batch of cleaning and documentation
+             Not finished yet and probably is currently broken
+             some changes not backward compatible (testing needed)
