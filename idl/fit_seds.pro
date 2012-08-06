@@ -11,7 +11,7 @@
 ;       Bayesian fitting.
 ;
 ; CALLING SEQUENCE:
-;       FIT_SEDS
+;       FIT_SEDS,cat_fluxes, cat_fluxes_unc, cat_coords, cat_mags, cag_mags_unc
 ;
 ; INPUTS:
 ;       cat_fluxes : fluxes of stars [n_bands, n_stars]
@@ -22,7 +22,19 @@
 ;                      n_stars]
 ;
 ; KEYWORD PARAMETERS:
-;       modname : model name (created from 
+;       modfile : model filename (created from make_model_seds.pro)
+;                 necessary for code to run
+;       outpath : name of dir in which to output resulting FITS files
+;       outbase : output base of filenames
+;       output_1d_likelihood : set to output the 1D marginalized likelihoods
+;       output_full_likelihood : set to output the full nD likelihoods
+;       cat_prefix : catalog name for star names (default = "PHAT")
+;       silent : set to turn of screen output
+;
+;       **parameters to control the number of stars fit**
+;       min_i : star number to start fitting
+;       max_i : star number to stop fitting
+;       skip_i : number of stars to skip between fitting
 ;
 ; OUTPUTS:
 ;
@@ -36,219 +48,302 @@
 ; 	Started     : Karl Gordon (2010)
 ;       2010-2012   : lots of development (undocumented, KDG)
 ;       31 Jul 2012 : Cleaned up and full documentation added (KDG)
+;        2 Aug 2012 : more cleanup (KDG)
+;        6 Aug 2012 : changed output to batch output
+;                        including binary table of fit parameters (used to be done later)
 ;-
 
 pro fit_seds,cat_fluxes,cat_fluxes_unc,cat_coords,cat_mags,cat_mags_unc, $
-             modname=modname, $
-             use_save_seds=use_save_seds,max_chisqr=max_chisqr,noplot=noplot, $
-             min_i=min_i,max_i=max_i,skip_i=skip_i,prompt=prompt,brick=brick, $
-             out_path=out_path,distance=distance, $
-             output_correlations=output_correlations,output_full_prob=output_full_prob, $
-             filter_files=filter_files,filter_ascii=filter_ascii
+             modfile=modfile,out_path=outpath,outbase=outbase, $
+             cat_prefix=cat_prefix,n_out_chunk=n_out_chunk, $
+             output_full_likelihood=output_full_likelihood, $
+             min_i=min_i,max_i=max_i,skip_i=skip_i, $
+             silent=silent
 
+; defaults
+if (not keyword_set(modfile)) then modfile = 'fits_seds_band_seds_default.sav'
+if (not keyword_set(outpath)) then outpath = 'fit_seds_default'
+outpath += '/' ; make sure this is a directory
+if (not keyword_set(outbase)) then outbase
+if (not kewyord_set(cat_prefix)) then cat_prefix = 'PHAT'
+
+; number of star in catalog
 n_cat = n_elements(cat_fluxes[0,*])
-
-if (not keyword_set(brick)) then brick = 1
-if (not keyword_set(distance)) then distance = 776e3 ; M31
-
-if (not keyword_set(modname)) then modname = 'default'
-
-brick_str = '_b' + strtrim(string(brick),2)
-
-if (not keyword_set(out_path)) then outpathsmallbase = 'fit_seds' else $
-  outpathsmallbase = out_path
-outpathbase = outpathsmallbase + '_fitinfo'
-out_path = outpathbase+'_'+modname+'/'
-
-    ; filter filenames
-if (not keyword_set(filter_files)) then begin
-    filter_files = '~/Hubble/PHAT/SEDFitting/' + ['wfc3_uvis_f275w_002_syn.fits','wfc3_uvis_f336w_002_syn.fits', $
-                                                  'acs_f475w_wfc_004_syn.fits','acs_f814w_wfc_005_syn.fits', + $
-                                                  'wfc3_ir_f110w_002_syn.fits','wfc3_ir_f160w_003_syn.fits']
-endif
- 
-; get the previously created band SEDs (created using make_model_seds)
-restore,'fit_sed_band_seds_'+modname+'.sav'
-
-; now do the fitting
-if (not file_test(out_path,/directory)) then begin
-    print,'making directory: ' + out_path
-    file_mkdir,out_path
-endif
-
-ans = ''
 
 if (not keyword_set(min_i)) then min_i = 0
 if (not keyword_set(max_i)) then max_i = n_cat - 1
+if (not keyword_set(skip_i)) then skip_i = 1
 max_i = min([n_cat-1,max_i])
-
 min_i = long(min_i)
 save_min_i = min_i
 max_i = long(max_i)
 
-if (not keyword_set(skip_i)) then skip_i = 1
+; get the previously created band SEDs (created using make_model_seds)
+if (file_test(modfile)) then begin
+    restore,'fit_sed_band_seds_'+modname+'.sav'
+endif else begin
+    print,'no model IDL save file found'
+    print,'modfile = ' + modfile
+    return
+endelse
 
-;min_i = long(float(min_i)/skip_i)
-;max_i = long(float(max_i)/skip_i)
-;offset_i = save_min_i mod skip_i
+; setup the output file
+if (not file_test(out_path,/directory)) then begin
+    if (not keyword_set(silent)) then print,'making directory: ' + out_path
+    file_mkdir,out_path
+endif
 
+; size of model grid
+size_band_seds = size(band_seds.band_grid_seds)
+n_waves = size_band_seds[5]
+print,'n_bands  ',n_waves
+
+; setup the indexes where the model does not exisit
+good_model_indxs = where(band_seds.band_grid_seds[*,*,*,*,0] GT 0.0,n_good_model_indxs)
+no_model_indxs = where(band_seds.band_grid_seds[*,*,*,*,0] LE 0.0,n_no_model_indxs)
+
+; setup the likelihood grid - log(likelihood) - only float needed
+log_likelihood = replicate(0.0,size_band_seds[1],size_band_seds[2],size_band_seds[3],size_band_seds[4])
+log_likelihood[no_model_indxs] = -75.  ; small enough?  (seems safe for float, can go lower if we use double)
+print,'# of good model points, model points',n_good_model_indxs, prod
+
+; ***setup the reverse histogram indices for determining "free" model parameters
+; birth and current mass bins setup
+mass_hmin = 0.5
+mass_hmax = 130.0
+mass_nbins = 50.
+mass_hmin_log10 = alog10(mass_hmin)
+mass_hmax_log10 = alog10(mass_hmax)
+mass_alog10_binsize = (mass_hmax_log10 - mass_hmin_log10)/mass_nbins
+
+mass_vals = mass_hmin_log10 + mass_alog10_binsize*(findgen(mass_nbins)+0.5)
+mass_vals = 10^mass_vals
+
+; the wonder of reverse_indices
+; find all the models that have similar birth masses
+histo = histogram(alog10(band_seds.grid_bmass[good_model_indxs]),min=mass_hmin_log10,max=mass_hmax_log10, $
+                  nbins=mass_nbins,reverse_indices=bmass_ri)
+
+; find all the models that have similar birth masses
+histo = histogram(alog10(band_seds.grid_mass[good_model_indxs]),min=mass_hmin_log10,max=mass_hmax_log10, $
+                  nbins=mass_nbins,reverse_indices=mass_ri)
+
+; age bins setup
+age_hmin = 1e3
+age_hmax = 1e11
+age_nbins = 100
+age_hmin_log10 = alog10(age_hmin)
+age_hmax_log10 = alog10(age_hmax)
+age_alog10_binsize = (age_hmax_log10 - age_hmin_log10)/age_nbins
+
+age_vals = age_hmin_log10 + age-alog10_binsize*(findgen(age_nbins)+0.5)
+age_vals = 10^age_vals
+
+histo = histogram(alog10(band_seds.grid_age[good_model_indxs]),min=age_hmin_log10,max=age_hmax_log10, $
+                  nbins=age_nbins,reverse_indices=age_ri)
+
+bmass_likelihood = fltarr(mass_nbins)
+mass_likelihood = fltarr(mass_nbins)
+age_likelihood = fltarr(age_nbins)
+
+; setup the output structure (for the FITS binary table)
+a = {name: "", number: 0L, ra: double(0.0), dec: 0D0, chisqr: 0.0, max_likelihood: 0.0, $
+     logt: 0.0, logt_unc: 0.0, logg: 0.0, logg_unc: 0.0, av: 0.0, av_unc: 0.0, rv: 0.0, rv_unc: 0.0, $
+     bmass: 0.0, bmass_unc: 0.0, mass: 0.0, mass_unc: 0.0, age: 0.0, age_unc: 0.0, $
+     luminosity: 0.0, radius: 0.0, $
+     mags: fltarr(n_waves), mags_unc: fltarr(n_waves), $
+;     mod_fluxes: fltarr(n_waves), unred_mod_fluxes: fltarr(n_waves), $
+     n_gindxs: 0}
+out_table = replicate(a,n_out_chunk)
+
+; setup the output arrays for the 1d likelihoods
+if (keyword_set(output_1d_likelihood) then begin
+    out_1d_logt_likelihood = fltarr(size_band_seds[1],n_out_chunk)
+endif
+
+cur_tot_out = n_out_chunk + 1
+cur_chunk = -1
 for z = min_i,max_i,skip_i do begin
-;for i = min_i,max_i do begin
-;    z = offset_i + i*skip_i
 
-;    print,'fitting # = ' + strtrim(string(z+1),2) + ' out of ' + strtrim(string(max_i*skip_i+1),2)
-    print,'fitting # = ' + strtrim(string(z+1),2) + ' out of ' + strtrim(string(max_i+1),2)
+    if (not keyword_set(silent)) then $
+      print,'fitting # = ' + strtrim(string(z+1),2) + ' out of ' + strtrim(string(max_i+1),2)
 
-    find_best_fit_sed,cat_fluxes[*,z],cat_fluxes_unc[*,z],band_seds,best_fit_param,chisqr,prob, $
-                      temp_av_image,temp_grav_image,grav_av_image,av_rv_image, $
-                      av_prob,temp_prob,grav_prob,rv_prob, $
-                      bmass_vals,bmass_prob,mass_vals,mass_prob,age_vals,age_prob, $
-                      best_fit_fluxes,best_unred_fit_fluxes,best_fit_uncs, $
-                      max_chisqr=max_chisqr,noplot=noplot
+    ; need to update this when upper limits are available
+    obs_sed = cat_fluxes[*,z]
+    obs_sed_unc = cat_fluxes_unc[*,z]
 
-;    print,best_fit_param
-;    stop
+    ; loop over the number of bands with good fluxes
+    ;  only compute for the good fluxes *and* good models
+    gindxs = where(obs_sed GT 0.0,n_gindxs)
+    k = gindxs[0]
+    ; initialize
+    log_likelihood[good_model_indxs] = (((band_seds.band_grid_seds[*,*,*,*,k])[good_model_indxs] - obs_sed[k])/obs_sed_unc[k])^2
+    for i = 1,(n_gindxs-1) do begin
+        k = gindxs[i]
+        log_likelihood[good_model_indxs] += (((band_seds.band_grid_seds[*,*,*,*,k])[good_model_indxs] - obs_sed[k])/obs_sed_unc[k])^2
+    endfor
+    ; compute the log_likelihood from the chisqr
+    log_likelihood[good_model_indxs] = -0.5*log_likelihood[good_model_indxs]
 
-;    if (not keyword_set(noplot)) then begin
-;        if (keyword_set(prompt)) then read,ans
+    ; collapse the 4D grids
+    ;   there is probably a better way to do this, maybe with histograms and indices (precompute?)
+    max_likelihood = max(log_likelihood)
+    likelihood_norv = total(exp(log_likelihood,4 - max_likelihood))
+    logt_av_image = total(likelihood_norv,2)
+    logt_logg_image = total(likelihood_norv,3)
+    logg_av_image = total(likelihood_norv,1)
+    ; now get the av_rv image
+    likelihood_nologt = total(exp(log_likelihood,1 - max_likelihood))
+    av_rv_image = total(likelihood_nologt,1)
 
-;        window,0,xsize=600,ysize=600
-;        kplot,10^band_seds.logt_vals,temp_prob,psym=100,kplot_type='oi',xtitle='temp'
-;        window,2,xsize=600,ysize=600
-;    kplot,band_seds.logg_vals,grav_prob,psym=100,xtitle='grav'
-;        kplot,bmass_vals,bmass_prob,psym=100,xtitle='bmass',kplot_type='oi'
-;        koplot,mass_vals,mass_prob,psym=100,linestyle=2
-;        window,3,xsize=600,ysize=600
-;        kplot,band_seds.av_vals,av_prob,psym=100,xtitle='av'
-;    endif        
+    ; finally, get the 1D likelihoods, marginalized over all other parameters
+    logt_likelihood = alog(total(logt_av_image,2)) + max_likelihood
+    logg_likelihood = alog(total(logt_logg_image,1)) + max_likelihood
+    av_likelihood = alog(total(logt_av_image,1)) + max_likelihood
+    rv_likelihood = alog(total(av_rv_image,1)) + max_likelihood
 
-    ; output the images and vectors of probabilities
+    ; get the 1D likelihoods for the "free" model parameters
+    ; birth mass
+    for i = 0,(mass_nbins-1) do begin
+        if (bmass_ri[i] NE bmass_ri[i+1]) then begin
+            bmass_likelihood[i] = alog(total(exp(log_likelihood[good_model_indxs[bmass_ri[bmass_ri[i]:bmass_ri[i+1]-1]]]) $
+                                             - max_likelihood)) + max_likelihood
+        endif
+    endfor
+    ; current mass
+    for i = 0,(mass_nbins-1) do begin
+        if (mass_ri[i] NE mass_ri[i+1]) then begin
+            mass_likelihood[i] = alog(total(exp(log_likelihood[good_model_indxs[mass_ri[mass_ri[i]:mass_ri[i+1]-1]]]) $
+                                             - max_likelihood)) + max_likelihood
+        endif
+    endfor
+    ; age
+    for i = 0,(age_nbins-1) do begin
+        if (age_ri[i] NE age_ri[i+1]) then begin
+            age_likelihood[i] = alog(total(exp(log_likelihood[good_model_indxs[age_ri[mass_ri[i]:age_ri[i+1]-1]]]) $
+                                             - max_likelihood)) + max_likelihood
+        endif
+    endfor
 
-    out_filename = out_path+outpathsmallbase+brick_str+'_s'+strtrim(string(z+1),2)+'_'+modname+'.fits'
-    fits_open,out_filename,ofcb,/write
+    ; extract the most probable values from the 1D likelihoods and their 1-sigma uncertainties
+    mp_logt = get_most_probable(band_seds.logt_vals,logt_likelihood)
+    mp_logg = get_most_probable(band_seds.logg_vals,logg_likelihood)
+    mp_av = get_most_probable(band_seds.av_vals,av_likelihood)
+    mp_rv = get_most_probable(band_seds.rv_vals,rv_likelihood)
+
+    mp_bmass = get_most_probable(mass_vals,bmass_likelihood)
+    mp_mass = get_most_probable(mass_vals,mass_likelihood)
+    mp_age = get_most_probable(age_vals,age_likelihood)
+    
+    ; setup the output
+    ;   created so that batch output is the norm - too many files otherwise 
+
+    if (cur_tot_out GE n_out_chunk)) then begin
+
+        cur_tot_out = -1 ; reset
+        cur_chunk++ ; new output chunk
+
+        ; filename for output includes model identifier
+        out_filename = out_path+outbase+'_'+modname+'_chunk_'+strtrim(string(cur_chunk+1),2)+'.fits'
+
+        if (keyword_set(output_full_likelihood) then begin
+            fits_open,repstr(out_filename,'.fits','_full_likelihood.fits'),ofcb_full,/write
+        endif
+
+    endif
+
+    cur_tot_out++  ; add one to keep track of how many have been output in the current file(s)
 
     ; construct name
-    rastr = deg2ra(cat_coords[0,z],sep_str='',/trunc_sec)
-    decstr = deg2dec(cat_coords[1,z],sep_str='',/trunc_sec)
-    name = 'CATB' + strtrim(string(brick),2) + '_' +  $
-           rastr + decstr
+    rastr = fit_seds_deg2ra(cat_coords[0,z],sep_str='',/trunc_sec)
+    decstr = fit_seds_deg2dec(cat_coords[1,z],sep_str='',/trunc_sec)
+    name = cat_prefix + '_' + rastr + decstr
 
-    tarray = [[band_seds.resp_eff_wave],[cat_fluxes[*,z]],[cat_fluxes_unc[*,z]], $
-              [cat_mags[*,z]],[cat_mags_unc[*,z]],[best_fit_fluxes],[best_unred_fit_fluxes]]
-    fxhmake,header,tarray,/initialize
-    sxaddpar,header,'NAME',name,'CAT unique name of this star (based on ra & dec)'
-    sxaddpar,header,'BRICK',brick,'CAT brick number'
-    sxaddpar,header,'SNUM',z+1,'star number'
-    sxaddpar,header,'RA',cat_coords[0,z],'RA'
-    sxaddpar,header,'DEC',cat_coords[1,z],'DEC'
-    sxaddpar,header,'PROB',best_fit_param[6],'unnormalized probability of best fit (use cautiously)'
-    sxaddpar,header,'CHISQR',best_fit_param[0],'chisqr of best fit'
+    out_table[cur_tot_out].name = name
+    out_table[cur_tot_out].number = z + 1
+    out_table[cur_tot_out].ra = cat_coords[0,z]
+    out_table[cur_tot_out].dec = cat_coords[1,z]
+    out_table[cur_tot_out].max_likelihood = max_likelihood
 
-    baynorm = product(1.0/sqrt(2.0*!PI*(cat_fluxes_unc[*,z]^2)))
-    sxaddpar,header,'BAYNORM',baynorm,'Bayesian weight/normalization (based on observation uncertainties)'
+    ; model parameters
+    out_table[cur_tot_out].logt = mp_logt[0]
+    out_table[cur_tot_out].logt_unc = mp_logt[1]
+    out_table[cur_tot_out].logg = mp_logg[0]
+    out_table[cur_tot_out].logg_unc = mp_logg[1]
+    out_table[cur_tot_out].av = mp_av[0]
+    out_table[cur_tot_out].av_unc = mp_av[1]
+    out_table[cur_tot_out].rv = mp_rv[0]
+    out_table[cur_tot_out].rv_unc = mp_rv[1]
 
-    sxaddpar,header,'TEMP',best_fit_param[1],'log(Teff) of best fit'
-    sxaddpar,header,'TEMPUNC',best_fit_uncs[0,0],'uncertainty in log(Teff) of best fit'
-    sxaddpar,header,'TEMPMUNC',best_fit_uncs[0,1],'- uncertainty in log(Teff) of best fit'
-    sxaddpar,header,'TEMPPUNC',best_fit_uncs[0,2],'+ uncertainty in log(Teff) of best fit'
-    sxaddpar,header,'GRAV',best_fit_param[2],'gravity, log(g), of best fit'
-    sxaddpar,header,'GRAVUNC',best_fit_uncs[1,0],'uncertainty in log(g) of best fit'
-    sxaddpar,header,'GRAVMUNC',best_fit_uncs[1,1],'- uncertainty in log(g) of best fit'
-    sxaddpar,header,'GRAVPUNC',best_fit_uncs[1,2],'+ uncertainty in log(g) of best fit'
-    sxaddpar,header,'AV',best_fit_param[3],'A(V) of best fit'
-    sxaddpar,header,'AVUNC',best_fit_uncs[2,0],'uncertainty in A(V) of best fit'
-    sxaddpar,header,'AVMUNC',best_fit_uncs[2,1],'- uncertainty in A(V) of best fit'
-    sxaddpar,header,'AVPUNC',best_fit_uncs[2,2],'+ uncertainty in A(V) of best fit'
-    sxaddpar,header,'RV',best_fit_param[4],'R(V) of best fit'
-    sxaddpar,header,'RVUNC',best_fit_uncs[3,0],'uncertainty in R(V) of best fit'
-    sxaddpar,header,'RVMUNC',best_fit_uncs[3,1],'- uncertainty in R(V) of best fit'
-    sxaddpar,header,'RVPUNC',best_fit_uncs[3,2],'+ uncertainty in R(V) of best fit'
+    ; other model parameters (for free)
+    out_table[cur_tot_out].bmass = bmass_mp[0]
+    out_table[cur_tot_out].bmass_unc = bmass_mp[1]
+    out_table[cur_tot_out].mass = mass_mp[0]
+    out_table[cur_tot_out].mass_unc = mass_mp[1]
+    out_table[cur_tot_out].age = age_mp[0]
+    out_table[cur_tot_out].age_unc = age_mp[1]
 
-    sxaddpar,header,'BMASS',best_fit_param[8],'birth mass of best fit'
-    sxaddpar,header,'BMASSUNC',best_fit_uncs[4,0],'uncertainty in birth mass of best fit'
-    sxaddpar,header,'BMASMUNC',best_fit_uncs[4,1],'- uncertainty in birth mass of best fit'
-    sxaddpar,header,'BMASPUNC',best_fit_uncs[4,2],'+ uncertainty in birth mass of best fit'
-    sxaddpar,header,'MASS',best_fit_param[9],'current mass of best fit'
-    sxaddpar,header,'MASSUNC',best_fit_uncs[5,0],'uncertainty in mass of best fit'
-    sxaddpar,header,'MASSMUNC',best_fit_uncs[5,1],'- uncertainty in mass of best fit'
-    sxaddpar,header,'MASSPUNC',best_fit_uncs[5,2],'+ uncertainty in mass of best fit'
-    sxaddpar,header,'AGE',best_fit_param[10],'current age of best fit'
-    sxaddpar,header,'AGEUNC',best_fit_uncs[6,0],'uncertainty in age of best fit'
-    sxaddpar,header,'AGEMUNC',best_fit_uncs[6,1],'- uncertainty in age of best fit'
-    sxaddpar,header,'AGEPUNC',best_fit_uncs[6,2],'+ uncertainty in age of best fit'
-    sxaddpar,header,'TLUM',best_fit_param[5],'best_fit luminosity'
-    sxaddpar,header,'GNUM',best_fit_param[7],'number of good photometry points'
-    sxaddpar,header,'COMMENT','columns are wavelength, flux, flux_unc, mag, mag_unc, model flux, unred model flux'
-    sxaddpar,header,'EXTNAME','OBS_SED','Observed SED'
-    fits_write,ofcb,tarray,header
+    out_table[cur_tot_out].mags = cat_mags[*,z]
+    out_table[cur_tot_out].mags_unc = cat_mags_unc[*,z]
+;    out_table[cur_tot_out].mod_fluxes = 
+;    out_table[cur_tot_out].unred_mod_fluxes = 
+    out_table[cur_tot_out].n_gindxs = n_gindxs
 
-    tarray = [[10^band_seds.logt_vals],[temp_prob]]
-    fxhmake,header,tarray,/initialize
-    sxaddpar,header,'EXTNAME','TEMP_PROB','probability name'
-    fits_write,ofcb,tarray,header
+    ; compute the radius
+    radius2 = (out_table[cur_tot_out].luminosity)*3.839d26/(4.0*!PI*5.67d-8*((10^out_table[cur_tot_out].teff)^4))
+    out_table[cur_tot_out].radius = sqrt(radius2)/6.955d8
 
-    tarray = [[band_seds.logg_vals],[grav_prob]]
-    fxhmake,header,tarray,/initialize
-    sxaddpar,header,'EXTNAME','GRAV_PROB','probability name'
-    fits_write,ofcb,tarray,header
 
-    tarray = [[band_seds.av_vals],[av_prob]]
-    fxhmake,header,tarray,/initialize
-    sxaddpar,header,'EXTNAME','AV_PROB','probability name'
-    fits_write,ofcb,tarray,header
+    if (keyword_set(output_1d_likelihood) then begin
+        out_1d_logt_likelihood[*,cur_tot_out] = logt_1d_likelihood
+;        out_1d_logg_likelihood[*,cur_tot_out] = logg_1d_likelihood
+;        out_1d_av_likelihood[*,cur_tot_out] = av_1d_likelihood
+;        out_1d_rv_likelihood[*,cur_tot_out] = rv_1d_likelihood
+;        out_1d_bmass_likelihood[*,cur_tot_out] = bmass_1d_likelihood
+;        out_1d_mass_likelihood[*,cur_tot_out] = mass_1d_likelihood
+;        out_1d_age_likelihood[*,cur_tot_out] = age_1d_likelihood
+    endif
 
-    tarray = [[band_seds.rv_vals],[rv_prob]]
-    fxhmake,header,tarray,/initialize
-    sxaddpar,header,'EXTNAME','RV_PROB','probability name'
-    fits_write,ofcb,tarray,header
 
-    tarray = [[bmass_vals],[bmass_prob]]
-    fxhmake,header,tarray,/initialize
-    sxaddpar,header,'EXTNAME','BMASS_PROB','probability name'
-    fits_write,ofcb,tarray,header
-
-    tarray = [[mass_vals],[mass_prob]]
-    fxhmake,header,tarray,/initialize
-    sxaddpar,header,'EXTNAME','MASS_PROB','probability name'
-    fits_write,ofcb,tarray,header
-
-    tarray = [[age_vals],[age_prob]]
-    fxhmake,header,tarray,/initialize
-    sxaddpar,header,'EXTNAME','AGE_PROB','probability name'
-    fits_write,ofcb,tarray,header
-
-    if (keyword_set(output_correlations)) then begin
-        fxhmake,header,temp_av_image,/initialize
-        sxaddpar,header,'EXTNAME','TEMP_AV_IMAGE','image name'
-        fits_write,ofcb,temp_av_image,header
+    if (keyword_set(output_full_likelihood)) then begin
+        ; each full likelihood gets a new extension (allows for varying sparse matrices
         
-        fxhmake,header,temp_grav_image,/initialize
-        sxaddpar,header,'EXTNAME','TEMP_GRAV_IMAGE','image name'
-        fits_write,ofcb,temp_grav_image,header
-
-        fxhmake,header,grav_av_image,/initialize
-        sxaddpar,header,'EXTNAME','GRAV_AV_IMAGE','image name'
-        fits_write,ofcb,grav_av_image,header
-
-        fxhmake,header,grav_av_image,/initialize
-        sxaddpar,header,'EXTNAME','AV_RV_IMAGE','image name'
-        fits_write,ofcb,av_rv_image,header
+        fxhmake,header,full_likelihood,/initialize
+        sxaddpar,header,'EXTNAME','FULL_LHD','full 4D likelihood'
+        sxaddpar,header,'STARNAME',out_table[cur_tot_out].name,'name of star'
+        sxaddpar,header,'STARNUM',out_table[cur_tot_out].number,'number of star'
+        fits_write,ofcb_full,full_likelihood,header
     endif
 
-    if (keyword_set(output_full_prob)) then begin
-        fxhmake,header,prob,/initialize
-        sxaddpar,header,'EXTNAME','FULL_PROB','full 4D probability grid'
-        fits_write,ofcb,prob,header
+
+    ; make sure to close the last file if it is still open
+    if ((cur_tot_out EQ n_out_chunk) OR (z GT (max_i-skip_i))) then begin
+        out_filename = out_path+outbase+'_'+modname+'_chunk_'+strtrim(string(cur_chunk+1),2)+'.fits'
+
+        ; trim the unused records (for the last chunk only)
+        if (cur_tot_out LT n_out_chunk) then begin
+            out_table = out_table[0:cur_tot_out] 
+        endif
+
+        ; write the main output file
+        mwrfits,out_table,out_filename,/create
+
+        ; write the 1d likelihood file
+        if (keyword_set(output_1d_likelihood) then begin
+            fits_open,repstr(out_filename,'.fits','_1d_likelihood.fits'),ofcb_1d,/write
+            
+            fxhmake,header,out_1d_logt_likelihood,/initialize
+            sxaddpar,header,'EXTNAME','LOGT_LHD','Log(Teff) Likelihood'
+            sxaddpar,header,'STARNAME',out_table[cur_tot_out].name,'name of star'
+            sxaddpar,header,'STARNUM',out_table[cur_tot_out].number,'number of star'
+            fits_write,ofcb_1d,out_1d_logt_likelihood,header
+
+            fits_close,ofcb_1d
+        endif
+
+        ; close the full likelihood file
+        if (keyword_set(output_full_prob)) then fits_close,ofcb_full
     endif
-
-    fits_close,ofcb
-
-;    fits_write,out_path+'obs_sed_chisqr'+strtrim(string(z+1),2)+'.fits',chisqr
-;    fits_write,out_path+'obs_sed_prob'+strtrim(string(z+1),2)+'.fits',prob
-
-    spawn,'gzip -f ' + out_filename + '&'
-
-    if (keyword_set(prompt)) then read,ans
 
 endfor
 

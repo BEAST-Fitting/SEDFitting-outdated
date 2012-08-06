@@ -12,3 +12,6 @@ Efforts by:
 2  Aug 2012: First batch of cleaning and documentation
              Not finished yet and probably is currently broken
              some changes not backward compatible (testing needed)
+
+6 Aug 2012: Finished cleanup and enhancement.  Now to test the code.  
+            Commiting to make sure nothing gets lost.
