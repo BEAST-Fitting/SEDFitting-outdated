@@ -30,22 +30,23 @@
 ;
 ; MODIFICATION HISTORY:
 ; 	Started     : Karl Gordon (6 Aug 2012)
+;       7 Aug 2012  : testing and bugfixes
 ;-
 
 function get_most_probable, vals, log_likelihood
 
 max_val = max(log_likelihood)
 
-indxs = where((log_likelihood - max_val) GT -70.0,n_indxs)
+indxs = where((log_likelihood - max_val) GT -40.0,n_indxs)
 
 if (n_indxs GT 0) then begin
-    cum_likelihood = total(exp(log_likelihood - max_val),/CUMULATIVE)
-    cum_prob /= max(cum_prob)
+    cum_likelihood = total(exp(log_likelihood[indxs] - max_val),/CUMULATIVE)
+    cum_likelihood /= max(cum_likelihood)
     
-    tresult = interpol(cum_prob,[0.5,0.165,0.835]
+    tresult = interpol(vals[indxs],cum_likelihood,[0.5,0.165,0.835])
     
-    result = [tresult[0],0.5*(tresult[1]+tresult[2]),tresult[1],tresult[2]]
-    
+    result = [tresult[0],0.5*(tresult[2]-tresult[1]),tresult[0]-tresult[1],tresult[2]-tresult[0]]
+
 endif else begin
 
     result = [0.0,0.0,0.0,0.0]
