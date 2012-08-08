@@ -230,22 +230,22 @@ for z = min_i,max_i,skip_i do begin
     ; birth mass
     for i = 0,(mass_nbins-1) do begin
         if (bmass_ri[i] NE bmass_ri[i+1]) then begin
-            bmass_likelihood[i] = alog(total(exp(log_likelihood[good_model_indxs[bmass_ri[bmass_ri[i]:bmass_ri[i+1]-1]]]) $
-                                             - max_likelihood)) + max_likelihood
+            bmass_likelihood[i] = alog(total(exp(log_likelihood[good_model_indxs[bmass_ri[bmass_ri[i]:bmass_ri[i+1]-1]]] $
+                                                 - max_likelihood))) + max_likelihood
         endif else bmass_likelihood[i] = -75.
     endfor
     ; current mass
     for i = 0,(mass_nbins-1) do begin
         if (mass_ri[i] NE mass_ri[i+1]) then begin
-            mass_likelihood[i] = alog(total(exp(log_likelihood[good_model_indxs[mass_ri[mass_ri[i]:mass_ri[i+1]-1]]]) $
-                                             - max_likelihood)) + max_likelihood
+            mass_likelihood[i] = alog(total(exp(log_likelihood[good_model_indxs[mass_ri[mass_ri[i]:mass_ri[i+1]-1]]] $
+                                                - max_likelihood))) + max_likelihood
         endif else mass_likelihood[i] = -75.
     endfor
     ; age
     for i = 0,(age_nbins-1) do begin
         if (age_ri[i] NE age_ri[i+1]) then begin
-            age_likelihood[i] = alog(total(exp(log_likelihood[good_model_indxs[age_ri[age_ri[i]:age_ri[i+1]-1]]]) $
-                                             - max_likelihood)) + max_likelihood
+            age_likelihood[i] = alog(total(exp(log_likelihood[good_model_indxs[age_ri[age_ri[i]:age_ri[i+1]-1]]] $
+                                               - max_likelihood))) + max_likelihood
         endif else age_likelihood[i] = -75.
     endfor
 

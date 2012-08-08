@@ -33,6 +33,7 @@
 ; 	Started     : Karl Gordon (2010)
 ;       2010-2012   : development (undocumented, KDG)
 ;        7 Aug 2012 : Cleaned up and full documentation added (KDG)
+;                     Code fixes to properly(?) compute band fluxes (integration including lambda term)
 ;-
 
 pro get_sed_band_fluxes,grid_seds,filter_files,band_seds,filter_ascii=filter_ascii
@@ -119,7 +120,7 @@ for i = 0,(size_grid_seds[1]-1) do begin
                 grid_bmass[i,j,k] = grid_seds[i,j,k].st_bmass
                 grid_mass[i,j,k] = grid_seds[i,j,k].st_mass
                 grid_age[i,j,k] = grid_seds[i,j,k].st_age
-                for m = 0,(n_filters-1) do begin
+                for m = 0,(n_filters-1) do begin ; see http://arxiv.org/abs/astro-ph/0210394
                     band_grid_seds[i,j,k,m] = total(0.5*(grid_seds[i,j,k].fluxes[1:n_waves-1] + grid_seds[i,j,k].fluxes[0:n_waves-2])*ave_resp_curves[*,m]*dlambda)/tot_resp_curves[m]
                 endfor
                 ; keep for red filter leak checks
