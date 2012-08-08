@@ -17,6 +17,7 @@
 ;
 ; KEYWORD PARAMETERS:
 ;       distance : distance to galaxy in pc [default is M31, 776e3 pc]
+;       filter_names : names of the filters
 ;       filter_files : filenames containing the response functions for
 ;                      each filter, assumed to be FITS tables
 ;       filter_ascii : set this keyword if the filter response files
@@ -47,10 +48,13 @@
 ; 	Started     : Karl Gordon (2011)
 ;       2011-2012   : lots of development (undocumented, KDG)
 ;       31 Jul 2012 : Cleaned up and full documentation added (KDG)
+;        7 Aug 2012 : added filter names to the input and output (KDG)
+;                     also added filter_files to the output
 ;-
 
 pro make_model_seds, distance=distance, $
-                     filter_files=filter_files,filter_ascii=filter_ascii, $
+                     filter_names=filter_names,filter_files=filter_files, $
+                     filter_ascii=filter_ascii, $
                      av_step=av_step, av_range=av_range, $
                      rv_step=rv_step, rv_range=rv_range, $
                      modname=modname, smodname=smodname, $
@@ -75,6 +79,14 @@ if (not keyword_set(filter_files)) then begin
                                                 'wfc3_ir_f110w_002_syn.fits','wfc3_ir_f160w_003_syn.fits']
 endif
 n_filters = n_elements(filter_files)
+
+if (not keyword_set(filter_names)) then filter_names = repliate('unknown',n_filters)
+
+if (n_elements(filter_names) NE n_filters) then begin
+    print,'error: the number of filter_names does not match the number of filter_files'
+    print,'correct and try again'
+    return
+end
 
 ; get the stellar atmosphere models, put them at the distance
 ; specified, and the luminosities (via radii) from stellar
@@ -136,7 +148,7 @@ for i = 0,(n_rv-1) do begin
         ; extinguish the stellar SEDs
         extinguish_seds,grid_seds,ext_grid_seds,rv=rv,min_av=min_chunk_av+av_step,max_av=max_chunk_av,av_step=av_step
         ; multiply the extinguished SEDs by the band response to get band fluxes
-        get_sed_band_fluxes,ext_grid_seds,filter_files,band_seds,ascii=filter_ascii
+        get_sed_band_fluxes,ext_grid_seds,filter_files,band_seds,filter_ascii=filter_ascii
 
         band_grid_seds[*,*,startk:endk,i,*] = band_seds.band_grid_seds
         grid_total_flux[*,*,startk:endk,i] = band_seds.grid_total_flux
@@ -162,7 +174,10 @@ band_seds = {band_grid_seds: band_grid_seds, $
              logg_vals: band_seds.logg_vals, $
              av_vals: many_av, $
              rv_vals: many_rv, $
-             resp_eff_wave: band_seds.resp_eff_wave}
+             resp_eff_wave: band_seds.resp_eff_wave, $
+             filter_names: filter_names, $
+             filter_files: filter_files, $
+             distance: distance}
 
 ; save the result
 save,band_seds,filename='fit_sed_band_seds_'+modname+'.sav'

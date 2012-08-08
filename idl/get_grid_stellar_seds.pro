@@ -79,7 +79,7 @@ for i = 0,(n_files-1) do begin
     ; currently only saving wavelengths that are of interest
     ;  starts at 912 A (may want to change this to provide predictions of ly-continuum photons)
     ;  changed to extend to 30 microns (useful for IRAC/MIPS24 and JWST predictions)
-    windxs = where((t.wavelength GT 912.) and (t.wavelength LT 30000.),n_twave)
+    windxs = where((t.wavelength GT 912.) and (t.wavelength LT 300000.),n_twave)
 
     tags = tag_names(t) 
     n_tgravs = n_elements(tags) - 1

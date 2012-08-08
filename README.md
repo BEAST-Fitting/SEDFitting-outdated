@@ -8,12 +8,12 @@ Karl Gordon (STScI)
 
 ### Acknowledgements:
 
-Help on the stellar models for this code has come from:
-- Danny Lennon (STScI)
-
 Help on Bayesian techniques for this code has come from:
 - David Hogg (NYU)
 - Dan Weisz, Morgan Fouesneau (UofWa)
+
+Help on the stellar models for this code has come from:
+- Danny Lennon (STScI)
 
 Support for this work from the Panchromatic Hubble Andromeda Treasury (PHAT)
 - Julianne Dalcanton (PI, UofWa)
@@ -25,6 +25,9 @@ Copyright 2011, 2012 the author.  All rights reserved.
 If you have interest in using or re-using any of this content, get in touch with Karl Gordon.
 
 ### Revision history:
+
+7 Aug 2012: Work enabling non-HST bandpasses.
+            Getting ready for predicting fluxes!
 
 7 Aug 2012: Basic testing and bugfixing done.  Code runs and produces
             reasonable output.  More extensive testing still needed.
