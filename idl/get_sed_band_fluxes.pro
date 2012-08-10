@@ -33,7 +33,9 @@
 ; 	Started     : Karl Gordon (2010)
 ;       2010-2012   : development (undocumented, KDG)
 ;        7 Aug 2012 : Cleaned up and full documentation added (KDG)
-;                     Code fixes to properly(?) compute band fluxes (integration including lambda term)
+;                     Code fixes to properly(?) compute band fluxes
+;                        (integration including lambda term means
+;                        integral done in photon units - like the detectors)
 ;-
 
 pro get_sed_band_fluxes,grid_seds,filter_files,band_seds,filter_ascii=filter_ascii
@@ -75,6 +77,7 @@ for k = 0,(n_filters-1) do begin
     endif else begin
         t2 = mrdfits(filter_files[k],1,/silent)
 
+; hard coded red filter leak check for F275W
 ;        if (k EQ 0) then begin
 ;            indxs = where(t2.wavelength GT 3500.)
 ;            t2[indxs].throughput = 0.0
@@ -85,12 +88,12 @@ for k = 0,(n_filters-1) do begin
 
     resp_curves[*,k] = tresp_curve
 
+    ; quantities useful for intgrations here and later
     ave_resp_curves[*,k] = 0.5*(resp_curves[1:n_waves-1,k] + resp_curves[0:n_waves-2,k])
-
-    resp_eff_wave[k] = (total(ave_lambda*ave_resp_curves[*,k]*dlambda)/total(ave_resp_curves[*,k]*dlambda))/1e4
-
-    ; multiply the tresp_curve by wavelength to provide the correct intergral in the big loop below
     tot_resp_curves[k] = total(ave_resp_curves[*,k]*dlambda)
+
+    ; useful to know, saved in microns
+    resp_eff_wave[k] = (total(ave_lambda*ave_resp_curves[*,k]*dlambda)/tot_resp_curves[k])/1e4
 
 endfor
 
@@ -124,11 +127,11 @@ for i = 0,(size_grid_seds[1]-1) do begin
                     band_grid_seds[i,j,k,m] = total(0.5*(grid_seds[i,j,k].fluxes[1:n_waves-1] + grid_seds[i,j,k].fluxes[0:n_waves-2])*ave_resp_curves[*,m]*dlambda)/tot_resp_curves[m]
                 endfor
                 ; keep for red filter leak checks
-                print,resp_eff_wave
-                print,reform(band_grid_seds[i,j,k,*],n_filters), av_vals[k],logg_vals[j],logt_vals[i]
-                kplot,resp_eff_wave,reform(band_grid_seds[i,j,k,*],n_filters),psym=1,kplot_type='oo'
-                koplot,grid_seds[i,j,k].waves/1e4,grid_seds[i,j,k].fluxes,psym=100
-                read,ans
+;                print,resp_eff_wave
+;                print,reform(band_grid_seds[i,j,k,*],n_filters), av_vals[k],logg_vals[j],logt_vals[i]
+;                kplot,resp_eff_wave,reform(band_grid_seds[i,j,k,*],n_filters),psym=1,kplot_type='oo'
+;                koplot,grid_seds[i,j,k].waves/1e4,grid_seds[i,j,k].fluxes,psym=100
+;                read,ans
             endif
         endfor
     endfor
